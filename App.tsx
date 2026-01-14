@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import PhysicsCanvas, { PhysicsCanvasRef } from './components/PhysicsCanvas';
-import PhysicsCanvas3D, { PhysicsCanvas3DRef } from './components/PhysicsCanvas3D';
+import PhysicsScene3D, { PhysicsCanvas3DRef } from './components/PhysicsCanvas3D';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import PropertiesPanel from './components/PropertiesPanel';
@@ -14,8 +14,9 @@ import {
   VisualizationSettings,
   GraphDataPoint 
 } from './types';
-import { BarChart3, Box, Square } from 'lucide-react';
-import './styles.css';
+import CosmosScene from './components/CosmosCanvas';
+import { BarChart3, Box, Square, Globe, Rocket } from 'lucide-react';
+import { Canvas } from '@react-three/fiber';
 
 const defaultVisualization: VisualizationSettings = {
   showGrid: true,
@@ -30,8 +31,11 @@ const defaultVisualization: VisualizationSettings = {
 };
 
 const App: React.FC = () => {
+  const [appMode, setAppMode] = useState<'lab' | 'cosmos'>('lab');
+  const [cosmosView, setCosmosView] = useState<'solar' | 'galaxy'>('solar');
   const [is3D, setIs3D] = useState(true);
   const [currentTool, setCurrentTool] = useState<ToolType>(ToolType.POINTER);
+  
   const [isPaused, setIsPaused] = useState(false);
   const [gravity, setGravity] = useState(1);
   const [timeScale, setTimeScale] = useState(1);
@@ -51,6 +55,7 @@ const App: React.FC = () => {
   };
 
   const handleClear = useCallback(() => {
+    if (appMode === 'cosmos') return;
     if (is3D) {
       canvas3DRef.current?.clear();
     } else {
@@ -59,15 +64,16 @@ const App: React.FC = () => {
     setSelectedObject(null);
     setPhysicsState(null);
     setGraphData([]);
-  }, [is3D]);
+  }, [is3D, appMode]);
 
   const handleReset = useCallback(() => {
+    if (appMode === 'cosmos') return;
     if (is3D) {
       canvas3DRef.current?.reset();
     } else {
       canvasRef.current?.reset();
     }
-  }, [is3D]);
+  }, [is3D, appMode]);
 
   const handleStepFrame = useCallback(() => {
     canvasRef.current?.stepFrame();
@@ -76,7 +82,7 @@ const App: React.FC = () => {
   const handleObjectSelect = useCallback((object: SceneObject | null) => {
     setSelectedObject(object);
     if (!object) {
-      setGraphData([]);
+      // Keep graph data or clear?
     }
   }, []);
 
@@ -158,94 +164,152 @@ const App: React.FC = () => {
 
   return (
     <div className="app-container">
-      <Sidebar onDragStart={handleDragStart} />
+      {appMode === 'lab' && <Sidebar onDragStart={handleDragStart} />}
 
       <div className="workspace">
-        <Toolbar 
-          currentTool={currentTool} 
-          setTool={setCurrentTool}
-          isPaused={isPaused}
-          setIsPaused={setIsPaused}
-          onClear={handleClear}
-          onReset={handleReset}
-          gravity={gravity}
-          setGravity={setGravity}
-          timeScale={timeScale}
-          setTimeScale={setTimeScale}
-          visualization={visualization}
-          setVisualization={setVisualization}
-          onStepFrame={handleStepFrame}
-        />
+        {appMode === 'lab' && (
+          <Toolbar 
+            currentTool={currentTool} 
+            setTool={setCurrentTool}
+            isPaused={isPaused}
+            setIsPaused={setIsPaused}
+            onClear={handleClear}
+            onReset={handleReset}
+            gravity={gravity}
+            setGravity={setGravity}
+            timeScale={timeScale}
+            setTimeScale={setTimeScale}
+            visualization={visualization}
+            setVisualization={setVisualization}
+            onStepFrame={handleStepFrame}
+          />
+        )}
 
-        {/* 2D/3D Toggle */}
+        {/* Mode Toggle Bar */}
         <div style={{ 
           position: 'absolute', 
           top: '16px', 
           right: '20px', 
           zIndex: 200,
           display: 'flex',
-          gap: '4px',
+          gap: '8px',
           background: 'rgba(15, 23, 42, 0.98)',
           border: '1px solid #334155',
           borderRadius: '10px',
           padding: '4px'
         }}>
-          <button
-            onClick={() => setIs3D(false)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 10px',
-              background: !is3D ? '#6366f1' : 'transparent',
-              border: 'none',
-              borderRadius: '6px',
-              color: !is3D ? 'white' : '#64748b',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            <Square size={14} /> 2D
-          </button>
-          <button
-            onClick={() => setIs3D(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 10px',
-              background: is3D ? '#6366f1' : 'transparent',
-              border: 'none',
-              borderRadius: '6px',
-              color: is3D ? 'white' : '#64748b',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
-          >
-            <Box size={14} /> 3D
-          </button>
+          {/* Lab Mode Toggles */}
+          {appMode === 'lab' ? (
+            <>
+              <div style={{ display: 'flex', gap: '4px', borderRight: '1px solid #475569', paddingRight: '8px' }}>
+                <button
+                  onClick={() => setIs3D(false)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: !is3D ? '#6366f1' : 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: !is3D ? 'white' : '#64748b', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  <Square size={14} /> 2D
+                </button>
+                <button
+                  onClick={() => setIs3D(true)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: is3D ? '#6366f1' : 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: is3D ? 'white' : '#64748b', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  <Box size={14} /> 3D
+                </button>
+              </div>
+              <button
+                 onClick={() => setAppMode('cosmos')}
+                 style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: '#fbbf24', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+              >
+                  <Rocket size={14} /> Cosmos
+              </button>
+            </>
+          ) : (
+            <>
+               <button
+                 onClick={() => setAppMode('lab')}
+                 style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: '#94a3b8', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+              >
+                  Back to Lab
+              </button>
+              <div style={{ display: 'flex', gap: '4px', borderLeft: '1px solid #475569', paddingLeft: '8px' }}>
+                <button
+                  onClick={() => setCosmosView('solar')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: cosmosView === 'solar' ? '#f59e0b' : 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: cosmosView === 'solar' ? 'white' : '#64748b', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  <Globe size={14} /> Solar
+                </button>
+                <button
+                  onClick={() => setCosmosView('galaxy')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                    background: cosmosView === 'galaxy' ? '#8b5cf6' : 'transparent',
+                    border: 'none', borderRadius: '6px',
+                    color: cosmosView === 'galaxy' ? 'white' : '#64748b', fontSize: '11px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                   Galaxy
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
-        <div style={{ position: 'absolute', top: '75px', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
-          <ExperimentSelector onSelectExperiment={handleSelectExperiment} />
-        </div>
+        {appMode === 'lab' && (
+          <div style={{ position: 'absolute', top: '75px', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
+            <ExperimentSelector onSelectExperiment={handleSelectExperiment} />
+          </div>
+        )}
 
-        {is3D ? (
-          <PhysicsCanvas3D
-            ref={canvas3DRef}
-            tool={currentTool}
-            isPaused={isPaused}
-            gravityScale={gravity}
-            timeScale={timeScale}
-            visualization={visualization}
-            selectedObjectId={selectedObject?.id || null}
-            onObjectSelect={handleObjectSelect}
-            onPhysicsUpdate={handlePhysicsUpdate}
-            onGraphDataUpdate={handleGraphDataUpdate}
-          />
-        ) : (
+        {/* SHARED 3D CANVAS */}
+        {(appMode === 'cosmos' || is3D) && (
+           <div className="canvas-container" style={{ background: '#070b14', width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
+              <Canvas shadows>
+                  {appMode === 'cosmos' ? (
+                       <CosmosScene viewMode={cosmosView} />
+                  ) : (
+                       <PhysicsScene3D
+                        ref={canvas3DRef}
+                        tool={currentTool}
+                        isPaused={isPaused}
+                        gravityScale={gravity}
+                        timeScale={timeScale}
+                        visualization={visualization}
+                        selectedObjectId={selectedObject?.id || null}
+                        onObjectSelect={handleObjectSelect}
+                        onPhysicsUpdate={handlePhysicsUpdate}
+                        onGraphDataUpdate={handleGraphDataUpdate}
+                      />
+                  )}
+              </Canvas>
+           </div>
+        )}
+
+        {/* 2D CANVAS (Conditionally rendered) */}
+        {appMode === 'lab' && !is3D && (
           <PhysicsCanvas 
             ref={canvasRef}
             tool={currentTool}

@@ -293,7 +293,20 @@ function Scene({ objects, selectedId, onSelectObject, onDeselectObject, onPhysic
   );
 }
 
-const PhysicsCanvas3D = forwardRef<PhysicsCanvas3DRef, PhysicsCanvas3DProps>(({
+// Camera helper for Physics Scene
+function PhysicsCamera() {
+  const { camera } = useThree();
+  
+  React.useEffect(() => {
+    // Reset camera when entering Physics Mode
+    camera.position.set(15, 15, 15);
+    camera.lookAt(0, 0, 0);
+  }, []);
+  
+  return null;
+}
+
+const PhysicsScene3D = forwardRef<PhysicsCanvas3DRef, PhysicsCanvas3DProps>(({
   tool,
   isPaused,
   gravityScale,
@@ -518,37 +531,179 @@ const PhysicsCanvas3D = forwardRef<PhysicsCanvas3DRef, PhysicsCanvas3DProps>(({
   
   const [orbitEnabled, setOrbitEnabled] = useState(true);
 
-  return (
-    <div 
-      className="canvas-container"
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      style={{ background: '#070b14' }}
-    >
-      <Canvas key={sceneKey} shadows>
-        <color attach="background" args={['#070b14']} />
-        <Scene
-          objects={objects}
-          selectedId={selectedObjectId}
-          onSelectObject={handleSelectObject}
-          onDeselectObject={handleDeselectObject}
-          onPhysicsUpdate={handlePhysicsUpdate3D}
-          gravity={gravityScale}
-          isPaused={isPaused}
-          showGrid={visualization.showGrid}
-          orbitEnabled={orbitEnabled}
-          setOrbitEnabled={setOrbitEnabled}
-        />
-      </Canvas>
+  // We attach the drop handler to a full-screen div Overlay inside the canvas? 
+  // No, the canvas parent (in App.tsx) should handle Drop if we want it to work easily.
+  // BUT: The drop handler needs access to `setObjects` which is HERE.
+  // One way: App.tsx handles drop and calls a method on this ref to adding object.
+  // Alternatively: We can just wrap this component in a Html div (which is maybe bad inside Canvas)
+  // OR: We assume the parent passes the drop event through?
+  // Actually, standard HTML events on the canvas DOM element work.
+  // We can attach `useThree`'s `gl.domElement` listeners?
+  // Let's rely on the Parent (App.tsx) container having `onDrop`.
+  // BUT the Logic is here.
+  // Solution: Expose "addObject" via Ref, move "handleDrop" logic to App.tsx?
+  // OR: Use `useThree` to add event listener to canvas?
+  // Let's try simplifying: The user drags onto the "Canvas Container".
+  // App.tsx has the container.
+  // We can keep `handleDrop` here but expose it? NO.
+  // Let's move `handleDrop` logic to a method `addObjectFromDrop` on the Ref.
+  
+  useImperativeHandle(ref, () => ({
+      // ... previous methods ...
+      deleteSelected: () => {
+        const selId = selectedIdRef.current;
+        if (selId) {
+          setObjects(prev => prev.filter(obj => obj.id !== selId));
+          initialPositionsRef.current.delete(selId);
+          onObjectSelect(null);
+          onPhysicsUpdate(null);
+        }
+      },
+      clear: () => {
+        setObjects([]);
+        initialPositionsRef.current.clear();
+        onObjectSelect(null);
+        onPhysicsUpdate(null);
+        setSceneKey(k => k + 1);
+      },
+      reset: () => {
+        setObjects(prev => prev.map(obj => {
+          const initialPos = initialPositionsRef.current.get(obj.id);
+          if (initialPos) {
+            return { ...obj, position: initialPos };
+          }
+          return obj;
+        }));
+        setSceneKey(k => k + 1);
+      },
+      resetSelected: () => {
+        const selId = selectedIdRef.current;
+        if (selId) {
+          const initialPos = initialPositionsRef.current.get(selId);
+          if (initialPos) {
+            setObjects(prev => prev.map(obj => 
+              obj.id === selId ? { ...obj, position: initialPos } : obj
+            ));
+            setSceneKey(k => k + 1);
+          }
+        }
+      },
+      loadExperiment: (experimentId: string) => {
+          // ... implementation details ...
+         const experiment = getExperimentById(experimentId);
+          if (!experiment) return;
+          
+          setObjects([]);
+          initialPositionsRef.current.clear();
+          onObjectSelect(null);
+          onPhysicsUpdate(null);
+          
+          const newObjects: Object3DData[] = [];
+          
+          experiment.objects.forEach((objConfig, index) => {
+            const definition = getObjectById(objConfig.definitionId);
+            if (!definition) return;
+            
+            const position: [number, number, number] = [
+              (objConfig.x - 400) / 50,
+              (500 - objConfig.y) / 50 + 2,
+              (index - experiment.objects.length / 2) * 1.5
+            ];
+            
+            const newObject: Object3DData = {
+              id: `exp_${objectIdCounter.current++}`,
+              position: position,
+              shape: definition.type === 'circle' ? 'sphere' : 'box',
+              size: [
+                (definition.width || definition.radius || 50) / 50,
+                (definition.height || definition.radius || 50) / 50,
+                (definition.width || definition.radius || 50) / 50
+              ],
+              color: definition.options.render?.fillStyle || '#6366f1',
+              mass: Math.max(0.1, (definition.options.density || 0.001) * 500),
+              restitution: definition.options.restitution || 0.5,
+              friction: definition.options.friction || 0.5,
+              definitionId: definition.id,
+              label: definition.label,
+              isStatic: definition.options.isStatic || false
+            };
+            
+            newObjects.push(newObject);
+            initialPositionsRef.current.set(newObject.id, [...newObject.position] as [number, number, number]);
+          });
+          
+          setObjects(newObjects);
+          setSceneKey(k => k + 1);
+      },
       
-      {objects.length === 0 && (
-        <div className="canvas-helper">
-          <p className="title">3D Physics Lab</p>
-          <p className="subtitle">Drag objects • Orbit with mouse • Scroll to zoom</p>
-        </div>
-      )}
-    </div>
+      // New method to handle drops from parent
+      addObjectFromDrop: (e: React.DragEvent) => {
+          try {
+            const data = e.dataTransfer.getData('application/json');
+            if (!data) return;
+            
+            const definition = JSON.parse(data) as PhysicsObjectDefinition;
+            
+            const newObject: Object3DData = {
+                id: `obj3d_${objectIdCounter.current++}`,
+                position: [
+                (Math.random() - 0.5) * 8,
+                5 + Math.random() * 3,
+                (Math.random() - 0.5) * 8
+                ],
+                shape: definition.type === 'circle' ? 'sphere' : 'box',
+                size: [
+                (definition.width || definition.radius || 50) / 50,
+                (definition.height || definition.radius || 50) / 50,
+                (definition.width || definition.radius || 50) / 50
+                ],
+                color: definition.options.render?.fillStyle || '#6366f1',
+                mass: Math.max(0.1, (definition.options.density || 0.001) * 500),
+                restitution: definition.options.restitution || 0.5,
+                friction: definition.options.friction || 0.5,
+                definitionId: definition.id,
+                label: definition.label,
+                isStatic: definition.options.isStatic || false
+            };
+            
+            setObjects(prev => [...prev, newObject]);
+            initialPositionsRef.current.set(newObject.id, [...newObject.position] as [number, number, number]);
+            
+            const sceneObj: SceneObject = {
+                id: newObject.id,
+                definitionId: newObject.definitionId,
+                body: null as any,
+                initialPosition: { x: newObject.position[0], y: newObject.position[1] },
+                initialAngle: 0,
+                customData: { label: newObject.label, color: newObject.color },
+                createdAt: Date.now()
+            };
+            onObjectSelect(sceneObj);
+            startTimeRef.current = Date.now();
+          } catch (err) {
+            console.error('Failed to add object:', err);
+          }
+      }
+  }));
+
+  return (
+    <>
+      <color attach="background" args={['#070b14']} />
+      <PhysicsCamera />
+      <Scene
+        objects={objects}
+        selectedId={selectedObjectId}
+        onSelectObject={handleSelectObject}
+        onDeselectObject={handleDeselectObject}
+        onPhysicsUpdate={handlePhysicsUpdate3D}
+        gravity={gravityScale}
+        isPaused={isPaused}
+        showGrid={visualization.showGrid}
+        orbitEnabled={orbitEnabled}
+        setOrbitEnabled={setOrbitEnabled}
+      />
+    </>
   );
 });
 
-export default PhysicsCanvas3D;
+export default PhysicsScene3D;
