@@ -1,21 +1,21 @@
 # Physics Laboratory Simulation
 
-An interactive 2D physics sandbox built with React, Matter.js, and TypeScript. Experiment with physics concepts like gravity, momentum, collisions, and energy in a visually rich environment.
+An interactive physics simulation sandbox built with React, Matter.js (2D), Rapier (3D), and TypeScript. Experiment with physics concepts like gravity, momentum, collisions, and energy in a visually rich environment.
 
-![Physics Lab](https://img.shields.io/badge/React-19-blue) ![Matter.js](https://img.shields.io/badge/Matter.js-Physics-green) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![Physics Lab](https://img.shields.io/badge/React-19-blue) ![Matter.js](https://img.shields.io/badge/Matter.js-2D_Physics-green) ![Rapier](https://img.shields.io/badge/Rapier-3D_Physics-orange) ![Three.js](https://img.shields.io/badge/Three.js-3D_Graphics-black)
 
 ## Features
 
+- **Dual Mode Simulation** - Switch seamlessly between 2D and 3D physics engines
 - **Drag & Drop Objects** - Place various physics objects like balls, boxes, ramps, and springs
-- **Real-time Physics** - Powered by Matter.js for accurate 2D physics simulation
+- **Real-time Physics** - Powered by Matter.js (2D) and Rapier (3D) for accurate simulation
 - **Pre-built Experiments** - Newton's Cradle, Projectile Motion, Elastic Collisions, and more
 - **Live Data Visualization** - Graphs showing position, velocity, and energy in real-time
 - **Visualization Overlays** - Velocity vectors, force vectors, and motion trails
 - **Adjustable Parameters** - Control gravity, time scale, friction, and restitution
-- **Properties Panel** - View and modify selected object properties
+- **Properties Panel** - View and modify selected object properties in both 2D and 3D
 
 ## Quick Start
-
 ```bash
 # Install dependencies
 npm install
@@ -28,16 +28,31 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Controls
 
+### General
+| Action | Control |
+|--------|---------|
+| Play/Pause | Space |
+| Toggle Graphs | G |
+| Clear All | Trash button |
+| Reset Positions | Reset button |
+| Switch 2D/3D | Toggle Switch in Toolbar |
+
+### 2D Mode
 | Action | Control |
 |--------|---------|
 | Select/Drag | Pointer tool (1) + click & drag |
 | Create Constraint | Constraint tool (2) |
 | Pin/Unpin Object | Pin tool (3) |
 | Delete Object | Eraser tool (4) |
-| Play/Pause | Space |
-| Toggle Graphs | G |
-| Clear All | Trash button |
-| Reset Positions | Reset button |
+
+### 3D Mode
+| Action | Control |
+|--------|---------|
+| Rotate Camera | Left Click + Drag |
+| Pan Camera | Right Click + Drag |
+| Zoom | Scroll Wheel |
+| **Throw Object** | Click & Drag Object (Pauses Camera) |
+| Select Object | Click Object |
 
 ## Object Categories
 
@@ -61,6 +76,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 - **React 19** - UI framework
 - **Matter.js** - 2D physics engine
+- **Rapier** - 3D physics engine (WASM-based)
+- **Three.js / React Three Fiber** - 3D rendering
 - **TypeScript** - Type safety
 - **Vite** - Fast build tool
 - **Recharts** - Data visualization
