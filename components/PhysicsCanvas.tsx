@@ -340,13 +340,16 @@ const PhysicsCanvas = forwardRef<PhysicsCanvasRef, PhysicsCanvasProps>(({
     const mouseConstraint = Matter.MouseConstraint.create(engine, {
       mouse: mouse,
       constraint: {
-        stiffness: 0.2,
+        stiffness: 0, // Disable spring constraint force, we move manually
         render: { visible: false }
       }
     });
 
     Matter.Composite.add(engine.world, mouseConstraint);
     render.mouse = mouse;
+    
+    // Custom Drag State
+    const draggedBodyRef = { current: null as { body: Matter.Body; originalStatic: boolean; lastPos: { x: number; y: number } } | null };
 
     Matter.Events.on(mouseConstraint, 'mousedown', (event) => {
       const currentTool = toolRef.current;
@@ -365,12 +368,61 @@ const PhysicsCanvas = forwardRef<PhysicsCanvasRef, PhysicsCanvasProps>(({
       }
     });
 
+    Matter.Events.on(mouseConstraint, 'startdrag', (event: any) => {
+      if (toolRef.current !== ToolType.POINTER) return;
+      const body = event.body;
+      if (body.label === 'Boundary') return; 
+
+      draggedBodyRef.current = {
+        body,
+        originalStatic: body.isStatic,
+        lastPos: { ...body.position }
+      };
+      
+      Matter.Body.setStatic(body, true);
+    });
+
+    Matter.Events.on(mouseConstraint, 'mousemove', (event: any) => {
+      const dragData = draggedBodyRef.current;
+      if (!dragData) return;
+      
+      Matter.Body.setPosition(dragData.body, event.mouse.position);
+    });
+
+    Matter.Events.on(mouseConstraint, 'enddrag', (event: any) => {
+      const dragData = draggedBodyRef.current as any;
+      if (!dragData) return;
+      
+      Matter.Body.setStatic(dragData.body, dragData.originalStatic);
+      
+      if (!dragData.originalStatic && dragData.velocity) {
+        // Apply throwing velocity
+        Matter.Body.setVelocity(dragData.body, dragData.velocity);
+      }
+      draggedBodyRef.current = null;
+    });
+    
+    Matter.Events.on(engine, 'beforeUpdate', () => {
+        applyForceEmitters();
+        
+        const dragData = draggedBodyRef.current as any;
+        if (dragData) {
+            const currentPos = dragData.body.position;
+            const velocity = {
+                x: currentPos.x - dragData.lastPos.x,
+                y: currentPos.y - dragData.lastPos.y
+            };
+            dragData.velocity = velocity;
+            dragData.lastPos = { ...currentPos };
+        }
+    });
+
+
     Matter.Render.run(render);
     const runner = Matter.Runner.create();
     runnerRef.current = runner;
     Matter.Runner.run(runner, engine);
 
-    Matter.Events.on(engine, 'beforeUpdate', applyForceEmitters);
     
     Matter.Events.on(engine, 'afterUpdate', () => {
       drawOverlay();
