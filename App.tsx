@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import PhysicsCanvas, { PhysicsCanvasRef } from './components/PhysicsCanvas';
+import PhysicsCanvas3D from './components/PhysicsCanvas3D';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import PropertiesPanel from './components/PropertiesPanel';
@@ -13,7 +14,7 @@ import {
   VisualizationSettings,
   GraphDataPoint 
 } from './types';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Box, Square } from 'lucide-react';
 import './styles.css';
 
 const defaultVisualization: VisualizationSettings = {
@@ -29,6 +30,7 @@ const defaultVisualization: VisualizationSettings = {
 };
 
 const App: React.FC = () => {
+  const [is3D, setIs3D] = useState(true);
   const [currentTool, setCurrentTool] = useState<ToolType>(ToolType.POINTER);
   const [isPaused, setIsPaused] = useState(false);
   const [gravity, setGravity] = useState(1);
@@ -56,7 +58,6 @@ const App: React.FC = () => {
 
   const handleReset = useCallback(() => {
     canvasRef.current?.reset();
-    setGraphData([]);
   }, []);
 
   const handleStepFrame = useCallback(() => {
@@ -65,8 +66,9 @@ const App: React.FC = () => {
 
   const handleObjectSelect = useCallback((object: SceneObject | null) => {
     setSelectedObject(object);
-    if (!object) setPhysicsState(null);
-    setGraphData([]);
+    if (!object) {
+      setGraphData([]);
+    }
   }, []);
 
   const handlePhysicsUpdate = useCallback((state: PhysicsState | null) => {
@@ -74,10 +76,17 @@ const App: React.FC = () => {
   }, []);
 
   const handleGraphDataUpdate = useCallback((data: GraphDataPoint) => {
-    setGraphData(prev => [...prev.slice(-500), data]);
+    setGraphData(prev => {
+      const maxPoints = 200;
+      const newData = [...prev, data];
+      if (newData.length > maxPoints) {
+        return newData.slice(newData.length - maxPoints);
+      }
+      return newData;
+    });
   }, []);
 
-  const handlePropertyChange = useCallback((property: string, value: number | boolean) => {
+  const handlePropertyChange = useCallback((property: string, value: number) => {
     canvasRef.current?.modifySelectedProperty(property, value);
   }, []);
 
@@ -99,32 +108,31 @@ const App: React.FC = () => {
   }, []);
 
   const handleSelectExperiment = useCallback((experimentId: string) => {
-    canvasRef.current?.loadExperiment(experimentId);
+    if (!is3D) {
+      canvasRef.current?.loadExperiment(experimentId);
+    }
     setSelectedObject(null);
     setPhysicsState(null);
     setGraphData([]);
-  }, []);
+  }, [is3D]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
       
-      if (e.code === 'Space' && !e.repeat) {
-        e.preventDefault();
-        setIsPaused(prev => !prev);
+      switch (e.key) {
+        case '1': setCurrentTool(ToolType.POINTER); break;
+        case '2': setCurrentTool(ToolType.CONSTRAINT); break;
+        case '3': setCurrentTool(ToolType.PIN); break;
+        case '4': setCurrentTool(ToolType.ERASER); break;
+        case ' ': e.preventDefault(); setIsPaused(p => !p); break;
+        case 'g': case 'G': setShowGraphs(s => !s); break;
+        case 'Delete': 
+          if (selectedObject) handleDeleteObject();
+          break;
       }
-      if (e.code === 'Delete' && selectedObject) {
-        handleDeleteObject();
-      }
-      if (e.code === 'KeyG') {
-        setShowGraphs(prev => !prev);
-      }
-      if (e.code === 'Digit1') setCurrentTool(ToolType.POINTER);
-      if (e.code === 'Digit2') setCurrentTool(ToolType.CONSTRAINT);
-      if (e.code === 'Digit3') setCurrentTool(ToolType.PIN);
-      if (e.code === 'Digit4') setCurrentTool(ToolType.ERASER);
     };
-
+    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedObject, handleDeleteObject]);
@@ -150,22 +158,87 @@ const App: React.FC = () => {
           onStepFrame={handleStepFrame}
         />
 
+        {/* 2D/3D Toggle */}
+        <div style={{ 
+          position: 'absolute', 
+          top: '16px', 
+          right: '20px', 
+          zIndex: 200,
+          display: 'flex',
+          gap: '4px',
+          background: 'rgba(15, 23, 42, 0.98)',
+          border: '1px solid #334155',
+          borderRadius: '10px',
+          padding: '4px'
+        }}>
+          <button
+            onClick={() => setIs3D(false)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '6px 10px',
+              background: !is3D ? '#6366f1' : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: !is3D ? 'white' : '#64748b',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            <Square size={14} /> 2D
+          </button>
+          <button
+            onClick={() => setIs3D(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '6px 10px',
+              background: is3D ? '#6366f1' : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: is3D ? 'white' : '#64748b',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            <Box size={14} /> 3D
+          </button>
+        </div>
+
         <div style={{ position: 'absolute', top: '75px', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
           <ExperimentSelector onSelectExperiment={handleSelectExperiment} />
         </div>
 
-        <PhysicsCanvas 
-          ref={canvasRef}
-          tool={currentTool}
-          isPaused={isPaused}
-          gravityScale={gravity}
-          timeScale={timeScale}
-          visualization={visualization}
-          selectedObjectId={selectedObject?.id || null}
-          onObjectSelect={handleObjectSelect}
-          onPhysicsUpdate={handlePhysicsUpdate}
-          onGraphDataUpdate={handleGraphDataUpdate}
-        />
+        {is3D ? (
+          <PhysicsCanvas3D
+            tool={currentTool}
+            isPaused={isPaused}
+            gravityScale={gravity}
+            timeScale={timeScale}
+            visualization={visualization}
+            selectedObjectId={selectedObject?.id || null}
+            onObjectSelect={handleObjectSelect}
+            onPhysicsUpdate={handlePhysicsUpdate}
+            onGraphDataUpdate={handleGraphDataUpdate}
+          />
+        ) : (
+          <PhysicsCanvas 
+            ref={canvasRef}
+            tool={currentTool}
+            isPaused={isPaused}
+            gravityScale={gravity}
+            timeScale={timeScale}
+            visualization={visualization}
+            selectedObjectId={selectedObject?.id || null}
+            onObjectSelect={handleObjectSelect}
+            onPhysicsUpdate={handlePhysicsUpdate}
+            onGraphDataUpdate={handleGraphDataUpdate}
+          />
+        )}
 
         <button
           onClick={() => setShowGraphs(!showGraphs)}
@@ -185,7 +258,7 @@ const App: React.FC = () => {
         />
 
         <div className="workspace-footer">
-          Physics Lab v2.0 • Matter.js
+          Physics Lab v3.0 • {is3D ? 'Three.js + Rapier' : 'Matter.js'}
         </div>
       </div>
 
