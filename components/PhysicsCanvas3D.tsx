@@ -1,9 +1,11 @@
-import React, { useRef, useState, useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid, PerspectiveCamera } from '@react-three/drei';
 import { Physics, RigidBody, CuboidCollider, RapierRigidBody } from '@react-three/rapier';
 import * as THREE from 'three';
 import { ToolType, PhysicsObjectDefinition, SceneObject, PhysicsState, VisualizationSettings, GraphDataPoint } from '../types';
+import { getExperimentById } from '../data/experiments';
+import { getObjectById } from '../data/objects';
 
 interface PhysicsCanvas3DProps {
   tool: ToolType;
@@ -17,6 +19,14 @@ interface PhysicsCanvas3DProps {
   onGraphDataUpdate: (data: GraphDataPoint) => void;
 }
 
+export interface PhysicsCanvas3DRef {
+  deleteSelected: () => void;
+  clear: () => void;
+  reset: () => void;
+  resetSelected: () => void;
+  loadExperiment: (experimentId: string) => void;
+}
+
 interface Object3DData {
   id: string;
   position: [number, number, number];
@@ -26,19 +36,99 @@ interface Object3DData {
   mass: number;
   restitution: number;
   friction: number;
+  definitionId: string;
+  label: string;
+  isStatic: boolean;
 }
 
-function PhysicsObject({ 
-  data, 
-  isSelected, 
-  onClick 
-}: { 
-  data: Object3DData; 
+import { useThree } from '@react-three/fiber';
+
+interface PhysicsObjectProps {
+  data: Object3DData;
   isSelected: boolean;
   onClick: () => void;
-}) {
+  onPhysicsUpdate: (pos: THREE.Vector3, vel: THREE.Vector3, mass: number) => void;
+  setOrbitEnabled: (enabled: boolean) => void;
+}
+
+function PhysicsObject({ data, isSelected, onClick, onPhysicsUpdate, setOrbitEnabled }: PhysicsObjectProps) {
   const rigidBodyRef = useRef<RapierRigidBody>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const planeIntersectPoint = useRef(new THREE.Vector3());
+  const { camera, raycaster, gl } = useThree();
   
+  useFrame(() => {
+    if (rigidBodyRef.current) {
+      if (isDragging) {
+        // Drag logic handled in pointer move, but we can verify position here?
+        // Actually, let's keep it simple: if dragging, don't update physics state for UI yet
+      } else if (isSelected) {
+        const pos = rigidBodyRef.current.translation();
+        const vel = rigidBodyRef.current.linvel();
+        onPhysicsUpdate(
+          new THREE.Vector3(pos.x, pos.y, pos.z),
+          new THREE.Vector3(vel.x, vel.y, vel.z),
+          data.mass
+        );
+      }
+    }
+  });
+
+
+  
+  // Real implementation of drag using event data
+  const handlePointerDown = (e: any) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    setOrbitEnabled(false);
+    onClick();
+    
+    if (rigidBodyRef.current) {
+        rigidBodyRef.current.setBodyType(2, true); // KinematicPositionBased
+    }
+  };
+  
+  const handlePointerUp = (e: any) => {
+    setIsDragging(false);
+    setOrbitEnabled(true);
+    if (rigidBodyRef.current) {
+        const targetType = data.isStatic ? 1 : 0; // 1 = Fixed, 0 = Dynamic
+        rigidBodyRef.current.setBodyType(targetType, true);
+        rigidBodyRef.current.wakeUp();
+    }
+  };
+  
+  // We need to use useFrame to update position during drag because onPointerMove is only on the mesh surface, 
+  // and if we move fast we leave the mesh.
+  // Instead, we attach a "global" pointer move listener when dragging? 
+  // Or use global raycaster in useFrame?
+  
+  useFrame((state) => {
+    if (isDragging && rigidBodyRef.current) {
+        // Raycast against a mathematical plane at the capture depth
+        // Let's use a plane passing through the object's center, facing the camera?
+        // Or just the XZ plane for "sliding" bodies?
+        // User asked to "throw" it.
+        
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Ground plane
+        // Actually, let's make the plane height dynamic based on where grasp happened?
+        // For simplicity: Drag moves object at fixed height Y=5 (floating) or current height.
+        
+        const target = new THREE.Vector3(); 
+        state.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -rigidBodyRef.current.translation().y), target);
+        
+        if (target) {
+            const nextPos = { x: target.x, y: rigidBodyRef.current.translation().y, z: target.z };
+            
+            // Calculate velocity for throw
+            const currentPos = rigidBodyRef.current.translation();
+            // We set next translation, Rapier computes velocity for us if using KinematicPositionBased
+            rigidBodyRef.current.setNextKinematicTranslation(nextPos);
+        }
+    }
+  });
+
   const getMesh = () => {
     const material = (
       <meshStandardMaterial 
@@ -46,13 +136,22 @@ function PhysicsObject({
         roughness={0.3} 
         metalness={0.2}
         emissive={isSelected ? '#6366f1' : '#000000'}
-        emissiveIntensity={isSelected ? 0.3 : 0}
+        emissiveIntensity={isSelected ? 0.4 : 0}
       />
     );
     
+    const meshProps = {
+        castShadow: true,
+        receiveShadow: true,
+        // Using built-in pointer events on the mesh
+        onPointerDown: handlePointerDown,
+        onPointerUp: handlePointerUp,
+        // We handle move in useFrame + global raycaster
+    };
+    
     if (data.shape === 'sphere') {
       return (
-        <mesh onClick={onClick} castShadow receiveShadow>
+        <mesh {...meshProps}>
           <sphereGeometry args={[data.size[0] / 2, 32, 32]} />
           {material}
         </mesh>
@@ -61,7 +160,7 @@ function PhysicsObject({
     
     if (data.shape === 'cylinder') {
       return (
-        <mesh onClick={onClick} castShadow receiveShadow>
+        <mesh {...meshProps}>
           <cylinderGeometry args={[data.size[0] / 2, data.size[0] / 2, data.size[1], 32]} />
           {material}
         </mesh>
@@ -69,7 +168,7 @@ function PhysicsObject({
     }
     
     return (
-      <mesh onClick={onClick} castShadow receiveShadow>
+      <mesh {...meshProps}>
         <boxGeometry args={data.size} />
         {material}
       </mesh>
@@ -79,11 +178,15 @@ function PhysicsObject({
   return (
     <RigidBody 
       ref={rigidBodyRef}
+      type={data.isStatic ? 'fixed' : 'dynamic'}
       position={data.position}
       restitution={data.restitution}
       friction={data.friction}
       mass={data.mass}
       colliders={data.shape === 'sphere' ? 'ball' : data.shape === 'cylinder' ? 'hull' : 'cuboid'}
+      // Need to listen to pointer up globally in case mouse leaves object?
+      // React Three Fiber's event system handles capture? 
+      // Safest is to attach window listener for up if dragging?
     >
       {getMesh()}
     </RigidBody>
@@ -102,25 +205,25 @@ function Ground() {
   );
 }
 
-function Scene({ 
-  objects, 
-  selectedId, 
-  onSelectObject,
-  gravity,
-  isPaused,
-  showGrid
-}: { 
+interface SceneProps {
   objects: Object3DData[];
   selectedId: string | null;
   onSelectObject: (id: string) => void;
+  onDeselectObject: () => void;
+  onPhysicsUpdate: (id: string, pos: THREE.Vector3, vel: THREE.Vector3, mass: number) => void;
   gravity: number;
   isPaused: boolean;
   showGrid: boolean;
-}) {
+  orbitEnabled: boolean;
+  setOrbitEnabled: (enabled: boolean) => void;
+}
+
+function Scene({ objects, selectedId, onSelectObject, onDeselectObject, onPhysicsUpdate, gravity, isPaused, showGrid, orbitEnabled, setOrbitEnabled }: SceneProps) {
   return (
     <>
       <PerspectiveCamera makeDefault position={[15, 15, 15]} fov={50} />
       <OrbitControls 
+        enabled={orbitEnabled}
         enablePan={true}
         enableZoom={true}
         enableRotate={true}
@@ -168,12 +271,19 @@ function Scene({
       >
         <Ground />
         
+        <mesh onClick={onDeselectObject} visible={false}>
+          <planeGeometry args={[200, 200]} />
+          <meshBasicMaterial transparent opacity={0} />
+        </mesh>
+        
         {objects.map((obj) => (
           <PhysicsObject
             key={obj.id}
             data={obj}
             isSelected={selectedId === obj.id}
             onClick={() => onSelectObject(obj.id)}
+            onPhysicsUpdate={(pos, vel, mass) => onPhysicsUpdate(obj.id, pos, vel, mass)}
+            setOrbitEnabled={setOrbitEnabled}
           />
         ))}
       </Physics>
@@ -183,33 +293,127 @@ function Scene({
   );
 }
 
-const PhysicsCanvas3D: React.FC<PhysicsCanvas3DProps> = ({
+const PhysicsCanvas3D = forwardRef<PhysicsCanvas3DRef, PhysicsCanvas3DProps>(({
   tool,
   isPaused,
   gravityScale,
-  timeScale,
   visualization,
   selectedObjectId,
   onObjectSelect,
   onPhysicsUpdate,
   onGraphDataUpdate
-}) => {
+}, ref) => {
   const [objects, setObjects] = useState<Object3DData[]>([]);
+  const [sceneKey, setSceneKey] = useState(0);
   const objectIdCounter = useRef(0);
+  const startTimeRef = useRef(Date.now());
+  const selectedIdRef = useRef<string | null>(null);
+  const initialPositionsRef = useRef<Map<string, [number, number, number]>>(new Map());
+  
+  selectedIdRef.current = selectedObjectId;
+  
+  useImperativeHandle(ref, () => ({
+    deleteSelected: () => {
+      const selId = selectedIdRef.current;
+      if (selId) {
+        setObjects(prev => prev.filter(obj => obj.id !== selId));
+        initialPositionsRef.current.delete(selId);
+        onObjectSelect(null);
+        onPhysicsUpdate(null);
+      }
+    },
+    clear: () => {
+      setObjects([]);
+      initialPositionsRef.current.clear();
+      onObjectSelect(null);
+      onPhysicsUpdate(null);
+      setSceneKey(k => k + 1);
+    },
+    reset: () => {
+      setObjects(prev => prev.map(obj => {
+        const initialPos = initialPositionsRef.current.get(obj.id);
+        if (initialPos) {
+          return { ...obj, position: initialPos };
+        }
+        return obj;
+      }));
+      setSceneKey(k => k + 1);
+    },
+    resetSelected: () => {
+      const selId = selectedIdRef.current;
+      if (selId) {
+        const initialPos = initialPositionsRef.current.get(selId);
+        if (initialPos) {
+          setObjects(prev => prev.map(obj => 
+            obj.id === selId ? { ...obj, position: initialPos } : obj
+          ));
+          setSceneKey(k => k + 1);
+        }
+      }
+    },
+    loadExperiment: (experimentId: string) => {
+      const experiment = getExperimentById(experimentId);
+      if (!experiment) return;
+      
+      setObjects([]);
+      initialPositionsRef.current.clear();
+      onObjectSelect(null);
+      onPhysicsUpdate(null);
+      
+      const newObjects: Object3DData[] = [];
+      
+      experiment.objects.forEach((objConfig, index) => {
+        const definition = getObjectById(objConfig.definitionId);
+        if (!definition) return;
+        
+        const position: [number, number, number] = [
+          (objConfig.x - 400) / 50,
+          (500 - objConfig.y) / 50 + 2,
+          (index - experiment.objects.length / 2) * 1.5
+        ];
+        
+        const newObject: Object3DData = {
+          id: `exp_${objectIdCounter.current++}`,
+          position: position,
+          shape: definition.type === 'circle' ? 'sphere' : 'box',
+          size: [
+            (definition.width || definition.radius || 50) / 50,
+            (definition.height || definition.radius || 50) / 50,
+            (definition.width || definition.radius || 50) / 50
+          ],
+          color: definition.options.render?.fillStyle || '#6366f1',
+          mass: Math.max(0.1, (definition.options.density || 0.001) * 500),
+          restitution: definition.options.restitution || 0.5,
+          friction: definition.options.friction || 0.5,
+          definitionId: definition.id,
+          label: definition.label,
+          isStatic: definition.options.isStatic || false
+        };
+        
+        newObjects.push(newObject);
+        initialPositionsRef.current.set(newObject.id, [...newObject.position] as [number, number, number]);
+      });
+      
+      setObjects(newObjects);
+      setSceneKey(k => k + 1);
+    }
+  }), [onObjectSelect, onPhysicsUpdate]);
   
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     
     try {
       const data = e.dataTransfer.getData('application/json');
+      if (!data) return;
+      
       const definition = JSON.parse(data) as PhysicsObjectDefinition;
       
       const newObject: Object3DData = {
-        id: `obj_${objectIdCounter.current++}`,
+        id: `obj3d_${objectIdCounter.current++}`,
         position: [
-          (Math.random() - 0.5) * 10,
+          (Math.random() - 0.5) * 8,
           5 + Math.random() * 3,
-          (Math.random() - 0.5) * 10
+          (Math.random() - 0.5) * 8
         ],
         shape: definition.type === 'circle' ? 'sphere' : 'box',
         size: [
@@ -218,16 +422,32 @@ const PhysicsCanvas3D: React.FC<PhysicsCanvas3DProps> = ({
           (definition.width || definition.radius || 50) / 50
         ],
         color: definition.options.render?.fillStyle || '#6366f1',
-        mass: (definition.options.density || 0.001) * 1000,
+        mass: Math.max(0.1, (definition.options.density || 0.001) * 500),
         restitution: definition.options.restitution || 0.5,
-        friction: definition.options.friction || 0.5
+        friction: definition.options.friction || 0.5,
+        definitionId: definition.id,
+        label: definition.label,
+        isStatic: definition.options.isStatic || false
       };
       
       setObjects(prev => [...prev, newObject]);
+      initialPositionsRef.current.set(newObject.id, [...newObject.position] as [number, number, number]);
+      
+      const sceneObj: SceneObject = {
+        id: newObject.id,
+        definitionId: newObject.definitionId,
+        body: null as any,
+        initialPosition: { x: newObject.position[0], y: newObject.position[1] },
+        initialAngle: 0,
+        customData: { label: newObject.label, color: newObject.color },
+        createdAt: Date.now()
+      };
+      onObjectSelect(sceneObj);
+      startTimeRef.current = Date.now();
     } catch (err) {
       console.error('Failed to create 3D object:', err);
     }
-  }, []);
+  }, [onObjectSelect]);
   
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -235,20 +455,69 @@ const PhysicsCanvas3D: React.FC<PhysicsCanvas3DProps> = ({
   }, []);
   
   const handleSelectObject = useCallback((id: string) => {
+    if (tool !== ToolType.POINTER) return;
+    
     const obj = objects.find(o => o.id === id);
-    if (obj && tool === ToolType.POINTER) {
-      onObjectSelect({
+    if (obj) {
+      const sceneObj: SceneObject = {
         id: obj.id,
-        definitionId: 'custom',
+        definitionId: obj.definitionId,
         body: null as any,
         initialPosition: { x: obj.position[0], y: obj.position[1] },
         initialAngle: 0,
-        customData: {},
+        customData: { label: obj.label, color: obj.color },
         createdAt: Date.now()
-      });
+      };
+      onObjectSelect(sceneObj);
+      startTimeRef.current = Date.now();
     }
   }, [objects, onObjectSelect, tool]);
   
+  const handleDeselectObject = useCallback(() => {
+    onObjectSelect(null);
+    onPhysicsUpdate(null);
+  }, [onObjectSelect, onPhysicsUpdate]);
+  
+  const handlePhysicsUpdate3D = useCallback((id: string, pos: THREE.Vector3, vel: THREE.Vector3, mass: number) => {
+    if (selectedIdRef.current !== id) return;
+    
+    const speed = vel.length();
+    const kineticEnergy = 0.5 * mass * speed * speed;
+    const potentialEnergy = mass * gravityScale * 9.81 * Math.max(0, pos.y);
+    
+    const state: PhysicsState = {
+      position: { x: pos.x, y: pos.y },
+      velocity: { x: vel.x, y: vel.y },
+      acceleration: { x: 0, y: -gravityScale * 9.81 },
+      angle: 0,
+      angularVelocity: 0,
+      force: { x: 0, y: -mass * gravityScale * 9.81 },
+      mass: mass,
+      speed: speed,
+      kineticEnergy: kineticEnergy,
+      potentialEnergy: potentialEnergy,
+      totalEnergy: kineticEnergy + potentialEnergy,
+      momentum: { x: mass * vel.x, y: mass * vel.y }
+    };
+    
+    onPhysicsUpdate(state);
+    
+    const elapsed = (Date.now() - startTimeRef.current) / 1000;
+    onGraphDataUpdate({
+      time: elapsed,
+      positionX: pos.x,
+      positionY: pos.y,
+      velocityX: vel.x,
+      velocityY: vel.y,
+      speed: speed,
+      kineticEnergy: kineticEnergy,
+      potentialEnergy: potentialEnergy,
+      totalEnergy: kineticEnergy + potentialEnergy
+    });
+  }, [gravityScale, onPhysicsUpdate, onGraphDataUpdate]);
+  
+  const [orbitEnabled, setOrbitEnabled] = useState(true);
+
   return (
     <div 
       className="canvas-container"
@@ -256,24 +525,30 @@ const PhysicsCanvas3D: React.FC<PhysicsCanvas3DProps> = ({
       onDragOver={handleDragOver}
       style={{ background: '#070b14' }}
     >
-      <Canvas shadows>
+      <Canvas key={sceneKey} shadows>
         <color attach="background" args={['#070b14']} />
         <Scene
           objects={objects}
           selectedId={selectedObjectId}
           onSelectObject={handleSelectObject}
+          onDeselectObject={handleDeselectObject}
+          onPhysicsUpdate={handlePhysicsUpdate3D}
           gravity={gravityScale}
           isPaused={isPaused}
           showGrid={visualization.showGrid}
+          orbitEnabled={orbitEnabled}
+          setOrbitEnabled={setOrbitEnabled}
         />
       </Canvas>
       
-      <div className="canvas-helper">
-        <p className="title">3D Physics Lab</p>
-        <p className="subtitle">Drag objects • Orbit with mouse • Scroll to zoom</p>
-      </div>
+      {objects.length === 0 && (
+        <div className="canvas-helper">
+          <p className="title">3D Physics Lab</p>
+          <p className="subtitle">Drag objects • Orbit with mouse • Scroll to zoom</p>
+        </div>
+      )}
     </div>
   );
-};
+});
 
 export default PhysicsCanvas3D;

@@ -37,8 +37,13 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   }
 
   const definition = getObjectById(selectedObject.definitionId);
-  const isStatic = selectedObject.body.isStatic;
-  const fillColor = selectedObject.body.render.fillStyle || '#64748b';
+  const isStatic = selectedObject.body?.isStatic ?? false;
+  const fillColor = selectedObject.body?.render?.fillStyle || selectedObject.customData?.color || '#6366f1';
+  const friction = selectedObject.body?.friction ?? 0.5;
+  const restitution = selectedObject.body?.restitution ?? 0.5;
+  const frictionAir = selectedObject.body?.frictionAir ?? 0.01;
+  const is3DMode = !selectedObject.body;
+  const objectLabel = selectedObject.customData?.label || definition?.label || 'Object';
 
   const formatValue = (value: number, decimals: number = 1) => value.toFixed(decimals);
 
@@ -49,19 +54,21 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           className="properties-icon" 
           style={{ backgroundColor: `${fillColor}20`, color: fillColor }}
         >
-          {definition?.type === 'circle' ? <Circle size={24} /> : <Box size={24} />}
+          {definition?.type === 'circle' || is3DMode ? <Circle size={24} /> : <Box size={24} />}
         </div>
         <div className="properties-title">
-          <h3>{definition?.label || 'Object'}</h3>
-          <p>{definition?.category}</p>
+          <h3>{objectLabel}</h3>
+          <p>{is3DMode ? '3D Object' : definition?.category}</p>
         </div>
-        <button 
-          onClick={onToggleStatic}
-          className={`lock-btn ${isStatic ? 'active' : ''}`}
-          title={isStatic ? 'Unlock' : 'Lock'}
-        >
-          {isStatic ? <Lock size={16} /> : <Unlock size={16} />}
-        </button>
+        {!is3DMode && (
+          <button 
+            onClick={onToggleStatic}
+            className={`lock-btn ${isStatic ? 'active' : ''}`}
+            title={isStatic ? 'Unlock' : 'Lock'}
+          >
+            {isStatic ? <Lock size={16} /> : <Unlock size={16} />}
+          </button>
+        )}
       </div>
 
       <div className="properties-content">
@@ -89,11 +96,11 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
             <div className="state-item">
               <div className="label">Speed</div>
-              <div className="value green">{formatValue(physicsState.speed)} px/s</div>
+              <div className="value green">{formatValue(physicsState.speed)} m/s</div>
             </div>
             <div className="state-item">
-              <div className="label">Angle</div>
-              <div className="value violet">{formatValue(physicsState.angle * (180 / Math.PI))}°</div>
+              <div className="label">Mass</div>
+              <div className="value violet">{formatValue(physicsState.mass, 2)} kg</div>
             </div>
           </div>
         </div>
@@ -135,73 +142,75 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           </div>
         </div>
 
-        {/* Properties */}
-        <div className="properties-section">
-          <div className="section-title">
-            <Gauge size={12} /> Properties
-          </div>
-          
-          <div className="property-slider">
-            <div className="header">
-              <span className="label">Mass</span>
-              <span className="value">{formatValue(physicsState.mass, 2)} kg</span>
+        {/* Properties - only show in 2D mode with body */}
+        {!is3DMode && (
+          <div className="properties-section">
+            <div className="section-title">
+              <Gauge size={12} /> Properties
             </div>
-            <input
-              type="range"
-              min="0.1"
-              max="50"
-              step="0.1"
-              value={physicsState.mass}
-              onChange={(e) => onPropertyChange('mass', parseFloat(e.target.value))}
-              disabled={isStatic}
-            />
-          </div>
+            
+            <div className="property-slider">
+              <div className="header">
+                <span className="label">Mass</span>
+                <span className="value">{formatValue(physicsState.mass, 2)} kg</span>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="50"
+                step="0.1"
+                value={physicsState.mass}
+                onChange={(e) => onPropertyChange('mass', parseFloat(e.target.value))}
+                disabled={isStatic}
+              />
+            </div>
 
-          <div className="property-slider">
-            <div className="header">
-              <span className="label">Friction</span>
-              <span className="value">{formatValue(selectedObject.body.friction, 2)}</span>
+            <div className="property-slider">
+              <div className="header">
+                <span className="label">Friction</span>
+                <span className="value">{formatValue(friction, 2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={friction}
+                onChange={(e) => onPropertyChange('friction', parseFloat(e.target.value))}
+              />
             </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={selectedObject.body.friction}
-              onChange={(e) => onPropertyChange('friction', parseFloat(e.target.value))}
-            />
-          </div>
 
-          <div className="property-slider">
-            <div className="header">
-              <span className="label">Bounciness</span>
-              <span className="value">{formatValue(selectedObject.body.restitution, 2)}</span>
+            <div className="property-slider">
+              <div className="header">
+                <span className="label">Bounciness</span>
+                <span className="value">{formatValue(restitution, 2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1.2"
+                step="0.01"
+                value={restitution}
+                onChange={(e) => onPropertyChange('restitution', parseFloat(e.target.value))}
+              />
             </div>
-            <input
-              type="range"
-              min="0"
-              max="1.2"
-              step="0.01"
-              value={selectedObject.body.restitution}
-              onChange={(e) => onPropertyChange('restitution', parseFloat(e.target.value))}
-            />
-          </div>
 
-          <div className="property-slider">
-            <div className="header">
-              <span className="label">Air Drag</span>
-              <span className="value">{formatValue(selectedObject.body.frictionAir, 3)}</span>
+            <div className="property-slider">
+              <div className="header">
+                <span className="label">Air Drag</span>
+                <span className="value">{formatValue(frictionAir, 3)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="0.2"
+                step="0.001"
+                value={frictionAir}
+                onChange={(e) => onPropertyChange('frictionAir', parseFloat(e.target.value))}
+              />
             </div>
-            <input
-              type="range"
-              min="0"
-              max="0.2"
-              step="0.001"
-              value={selectedObject.body.frictionAir}
-              onChange={(e) => onPropertyChange('frictionAir', parseFloat(e.target.value))}
-            />
           </div>
-        </div>
+        )}
 
         {/* Actions */}
         <div className="properties-section">

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import PhysicsCanvas, { PhysicsCanvasRef } from './components/PhysicsCanvas';
-import PhysicsCanvas3D from './components/PhysicsCanvas3D';
+import PhysicsCanvas3D, { PhysicsCanvas3DRef } from './components/PhysicsCanvas3D';
 import Toolbar from './components/Toolbar';
 import Sidebar from './components/Sidebar';
 import PropertiesPanel from './components/PropertiesPanel';
@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [graphType, setGraphType] = useState<'position' | 'velocity' | 'energy'>('energy');
   
   const canvasRef = useRef<PhysicsCanvasRef>(null);
+  const canvas3DRef = useRef<PhysicsCanvas3DRef>(null);
 
   const handleDragStart = (e: React.DragEvent, object: PhysicsObjectDefinition) => {
     e.dataTransfer.setData('application/json', JSON.stringify(object));
@@ -50,15 +51,23 @@ const App: React.FC = () => {
   };
 
   const handleClear = useCallback(() => {
-    canvasRef.current?.clear();
+    if (is3D) {
+      canvas3DRef.current?.clear();
+    } else {
+      canvasRef.current?.clear();
+    }
     setSelectedObject(null);
     setPhysicsState(null);
     setGraphData([]);
-  }, []);
+  }, [is3D]);
 
   const handleReset = useCallback(() => {
-    canvasRef.current?.reset();
-  }, []);
+    if (is3D) {
+      canvas3DRef.current?.reset();
+    } else {
+      canvasRef.current?.reset();
+    }
+  }, [is3D]);
 
   const handleStepFrame = useCallback(() => {
     canvasRef.current?.stepFrame();
@@ -94,21 +103,31 @@ const App: React.FC = () => {
   const handleApplyMaterial = useCallback(() => {}, []);
 
   const handleResetObject = useCallback(() => {
-    canvasRef.current?.resetSelectedPosition();
-  }, []);
+    if (is3D) {
+      canvas3DRef.current?.resetSelected();
+    } else {
+      canvasRef.current?.resetSelectedPosition();
+    }
+  }, [is3D]);
 
   const handleDeleteObject = useCallback(() => {
-    canvasRef.current?.deleteSelected();
+    if (is3D) {
+      canvas3DRef.current?.deleteSelected();
+    } else {
+      canvasRef.current?.deleteSelected();
+    }
     setSelectedObject(null);
     setPhysicsState(null);
-  }, []);
+  }, [is3D]);
 
   const handleToggleStatic = useCallback(() => {
     canvasRef.current?.toggleSelectedStatic();
   }, []);
 
   const handleSelectExperiment = useCallback((experimentId: string) => {
-    if (!is3D) {
+    if (is3D) {
+      canvas3DRef.current?.loadExperiment(experimentId);
+    } else {
       canvasRef.current?.loadExperiment(experimentId);
     }
     setSelectedObject(null);
@@ -215,6 +234,7 @@ const App: React.FC = () => {
 
         {is3D ? (
           <PhysicsCanvas3D
+            ref={canvas3DRef}
             tool={currentTool}
             isPaused={isPaused}
             gravityScale={gravity}
